@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Astronomy Weather Viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { font-family: Arial; background:#0b0f1a; color:#e0e6ff; text-align:center; }
+input, button { padding:10px; margin:10px; font-size:16px; }
+.container { display:flex; flex-wrap:wrap; justify-content:space-around; }
+.left, .right { width:45%; }
+.small { width:30%; }
+.card { background:#11182b; padding:20px; margin:20px auto; border-radius:10px; }
+canvas { width:100%; }
+.good { color:#4caf50; }
+.fair { color:#ffc107; }
+.poor { color:#f44336; }
+</style>
+</head>
+<body>
+<h1>Astronomy Weather Viewer</h1>
+
+<input id="zip" placeholder="Enter ZIP Code">
+<button onclick="getWeather()">Go</button>
+
+<div class="container">
+
+<div class="left card" id="conditions"></div>
+
+<div class="right card">
+<canvas id="chart"></canvas>
+</div>
+
+<div class="small card" id="forecast"></div>
+<div class="small card" id="moon"></div>
+
+</div>
+
+<script>
+const API_KEY = "ZSMBVQBG98BSW845P5KQ9VVDE";
+
+function estimateLightPollution(zip) {
+    if(zip.startsWith("85")) return {value:0.8, label:"Urban"};
+    return {value:0.3, label:"Rural"};
+}
+
+function telescopeScore(data, lightPollution) {
+    let score = (1 - data.cloudcover/100)*0.30 +
+                (1 - data.humidity/100)*0.15 +
+                (1 - data.precipprob/100)*0.1 +
+                (1 - data.windspeed/25)*0.15 +
+                (data.visibility/15)*0.15 +
+                (2*Math.abs(data.moonphase - 0.5))*0.10 +
+                (1 - lightPollution)*0.05;
+    return score * 100;
+}
+
+function ratingLabel(score) {
+    if(score > 80) return "Excellent";
+    if(score > 60) return "Good";
+    if(score > 40) return "Fair";
+    return "Poor";
+}
+
+function moonPhaseName(p) {
+    if(p < 0.0625 || p >= 0.9375) return "New Moon";
+    if(p < 0.1875) return "Waxing Crescent";
+    if(p < 0.3125) return "First Quarter";
+    if(p < 0.4375) return "Waxing Gibbous";
+    if(p < 0.5625) return "Full Moon";
+    if(p < 0.6875) return "Waning Gibbous";
+    if(p < 0.8125) return "Last Quarter";
+    return "Waning Crescent";
+}
+
+function bestViewing(hourly, sunset, light) {
+    let sunsetHour = parseInt(sunset.split(":")[0]);
+
+    let nightHours = hourly.filter(h => {
+        let hour = parseInt(h.datetime.split(":")[0]);
+        return hour >= sunsetHour;
+    });
+
+    if(nightHours.length === 0) return "No nighttime data";
+
+    let best = nightHours.map(h => ({
+        time: h.datetime,
+        score: telescopeScore(h, light)
+    })).reduce((a,b)=> a.score > b.score ? a : b);
+
+    return best.time;
+}
+
+async function getWeather() {
+    let zip = document.getElementById("zip").value;
+    let light = estimateLightPollution(zip);
+
+    let url = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/" + zip + "?unitGroup=us&key=" + API_KEY + "&contentType=json&include=hours";
+
+    let res = await fetch(url);
+    let json = await res.json();
+
+    let d = json.days[0];
+
+    let hourly = [];
+    json.days.forEach(day => {
+        hourly = hourly.concat(day.hours);
+    });
+
+    let sunsetHour = parseInt(d.sunset.split(":")[0]);
+
+    let nightHours = d.hours.filter(h => parseInt(h.datetime.split(":")[0]) >= sunsetHour);
+
+    let score = telescopeScore(d, light.value);
+    let rating = ratingLabel(score);
+
+    document.getElementById("conditions").innerHTML = 
+        "<h2>" + json.resolvedAddress + "</h2>" +
+        "<p><b>Conditions:</b> " + d.conditions + "</p>" +
+        "<p><b>Temp:</b> " + d.tempmin + "–" + d.tempmax + "°F</p>" +
+        "<p><b>Humidity:</b> " + d.humidity + "%</p>" +
+        "<p><b>Wind:</b> " + d.windspeed + " mph</p>" +
+        "<p><b>Cloud Cover:</b> " + d.cloudcover + "%</p>" +
+        "<p><b>Visibility:</b> " + d.visibility + "</p>" +
+        "<p><b>Moon:</b> " + moonPhaseName(d.moonphase) + "</p>" +
+        "<p><b>Light Pollution:</b> " + light.label + "</p>" +
+        "<h3><b>Telescope Rating:</b> " + score.toFixed(1) + "% (" + rating + ")</h3>" +
+        "<p><b>Best Viewing:</b> " + bestViewing(d.hours, d.sunset, light.value) + "</p>";
+
+    let ctx = document.getElementById('chart').getContext('2d');
+    if(window.chart && typeof window.chart.destroy === 'function') window.chart.destroy();
+
+    window.chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: nightHours.map(h => h.datetime),
+            datasets: [{ 
+                label: 'Night Cloud Cover (%)', 
+                data: nightHours.map(h => h.cloudcover) 
+            }]
+        }
+    });
+
+    // telescope rating next 7 days
+    let forecastHTML = "<h3>Telescope Rating</h3>";
+    json.days.slice(0,7).forEach(day => {
+        let s = telescopeScore(day, light.value);
+        forecastHTML += "<p>" + day.datetime + ": " + s.toFixed(0) + "%</p>";
+    });
+    document.getElementById("forecast").innerHTML = forecastHTML;
+
+    // moon phases next 7 days
+    let moonHTML = "<h3>Moon Phases</h3>";
+    json.days.slice(0,7).forEach(day => {
+        moonHTML += "<p>" + day.datetime + ": " + moonPhaseName(day.moonphase) + "</p>";
+    });
+    document.getElementById("moon").innerHTML = moonHTML;
+}
+</script>
+</body>
+</html>
