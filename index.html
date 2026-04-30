@@ -13,6 +13,7 @@ input, button { padding:10px; margin:10px; font-size:16px; }
 .small { width:30%; }
 .card { background:#11182b; padding:20px; margin:20px auto; border-radius:10px; }
 canvas { width:100%; }
+.clock { font-size:20px; margin-top:10px; }
 .good { color:#4caf50; }
 .fair { color:#ffc107; }
 .poor { color:#f44336; }
@@ -23,6 +24,8 @@ canvas { width:100%; }
 
 <input id="zip" placeholder="Enter ZIP Code">
 <button onclick="getWeather()">Go</button>
+
+<div class="clock" id="clock"></div>
 
 <div class="container">
 
@@ -39,6 +42,14 @@ canvas { width:100%; }
 
 <script>
 const API_KEY = "ZSMBVQBG98BSW845P5KQ9VVDE";
+
+// atomic clock (simple approximation using system time)
+function updateClock() {
+    let now = new Date();
+    document.getElementById("clock").innerText = "UTC Time: " + now.toUTCString();
+}
+setInterval(updateClock, 1000);
+updateClock();
 
 function estimateLightPollution(zip) {
     if(zip.startsWith("85")) return {value:0.8, label:"Urban"};
@@ -74,22 +85,31 @@ function moonPhaseName(p) {
     return "Waning Crescent";
 }
 
+function moonEmoji(p) {
+    if(p < 0.0625 || p >= 0.9375) return "🌑";
+    if(p < 0.1875) return "🌒";
+    if(p < 0.3125) return "🌓";
+    if(p < 0.4375) return "🌔";
+    if(p < 0.5625) return "🌕";
+    if(p < 0.6875) return "🌖";
+    if(p < 0.8125) return "🌗";
+    return "🌘";
+}
+
 function bestViewing(hourly, sunset, light) {
     let sunsetHour = parseInt(sunset.split(":")[0]);
-
-    let nightHours = hourly.filter(h => {
-        let hour = parseInt(h.datetime.split(":")[0]);
-        return hour >= sunsetHour;
-    });
-
+    let nightHours = hourly.filter(h => parseInt(h.datetime.split(":")[0]) >= sunsetHour);
     if(nightHours.length === 0) return "No nighttime data";
 
-    let best = nightHours.map(h => ({
-        time: h.datetime,
-        score: telescopeScore(h, light)
-    })).reduce((a,b)=> a.score > b.score ? a : b);
+    let best = nightHours.map(h => ({ time: h.datetime, score: telescopeScore(h, light) }))
+        .reduce((a,b)=> a.score > b.score ? a : b);
 
     return best.time;
+}
+
+function windDirection(deg) {
+    const dirs = ["N","NE","E","SE","S","SW","W","NW"];
+    return dirs[Math.round(deg/45)%8];
 }
 
 async function getWeather() {
@@ -102,14 +122,12 @@ async function getWeather() {
     let json = await res.json();
 
     let d = json.days[0];
+    let current = json.currentConditions;
 
     let hourly = [];
-    json.days.forEach(day => {
-        hourly = hourly.concat(day.hours);
-    });
+    json.days.forEach(day => hourly = hourly.concat(day.hours));
 
     let sunsetHour = parseInt(d.sunset.split(":")[0]);
-
     let nightHours = d.hours.filter(h => parseInt(h.datetime.split(":")[0]) >= sunsetHour);
 
     let score = telescopeScore(d, light.value);
@@ -117,10 +135,11 @@ async function getWeather() {
 
     document.getElementById("conditions").innerHTML = 
         "<h2>" + json.resolvedAddress + "</h2>" +
+        "<h3>Current Temp: " + current.temp + "°F</h3>" +
         "<p><b>Conditions:</b> " + d.conditions + "</p>" +
         "<p><b>Temp:</b> " + d.tempmin + "–" + d.tempmax + "°F</p>" +
         "<p><b>Humidity:</b> " + d.humidity + "%</p>" +
-        "<p><b>Wind:</b> " + d.windspeed + " mph</p>" +
+        "<p><b>Wind:</b> " + d.windspeed + " mph " + windDirection(d.winddir) + "</p>" +
         "<p><b>Cloud Cover:</b> " + d.cloudcover + "%</p>" +
         "<p><b>Visibility:</b> " + d.visibility + "</p>" +
         "<p><b>Moon:</b> " + moonPhaseName(d.moonphase) + "</p>" +
@@ -135,14 +154,10 @@ async function getWeather() {
         type: 'line',
         data: {
             labels: nightHours.map(h => h.datetime),
-            datasets: [{ 
-                label: 'Night Cloud Cover (%)', 
-                data: nightHours.map(h => h.cloudcover) 
-            }]
+            datasets: [{ label: 'Night Cloud Cover (%)', data: nightHours.map(h => h.cloudcover) }]
         }
     });
 
-    // telescope rating next 7 days
     let forecastHTML = "<h3>Telescope Rating</h3>";
     json.days.slice(0,7).forEach(day => {
         let s = telescopeScore(day, light.value);
@@ -150,10 +165,9 @@ async function getWeather() {
     });
     document.getElementById("forecast").innerHTML = forecastHTML;
 
-    // moon phases next 7 days
     let moonHTML = "<h3>Moon Phases</h3>";
     json.days.slice(0,7).forEach(day => {
-        moonHTML += "<p>" + day.datetime + ": " + moonPhaseName(day.moonphase) + "</p>";
+        moonHTML += "<p>" + day.datetime + ": " + moonPhaseName(day.moonphase) + " " + moonEmoji(day.moonphase) + "</p>";
     });
     document.getElementById("moon").innerHTML = moonHTML;
 }
