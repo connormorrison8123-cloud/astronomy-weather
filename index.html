@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,179 +6,367 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Astronomy Weather Viewer</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <style>
-body { font-family: Arial; background:#0b0f1a; color:#e0e6ff; text-align:center; }
-input, button { padding:10px; margin:10px; font-size:16px; }
-.container { display:flex; flex-wrap:wrap; justify-content:space-around; }
-.left, .right { width:45%; }
-.small { width:30%; }
-.card { background:#11182b; padding:20px; margin:20px auto; border-radius:10px; }
-canvas { width:100%; }
-.clock { font-size:20px; margin-top:10px; }
+body {
+  font-family: Arial;
+  background: url('./images/stars/star_cluster.png') no-repeat center center fixed;
+  background-size: cover;
+  color:#e0e6ff;
+  text-align:center;
+  overflow-y: auto;
+}
+
+.main {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:flex-start;
+  height:auto; /* allow content to show */
+  padding-top:100px;
+}
+
+
+.search-container {
+  margin-bottom:20px;
+  margin-top:-10px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+
+#zip {
+  width: 420px;
+  max-width: 80vw;
+  padding: 14px 16px;
+  border-radius: 24px;
+  border: none;
+  outline: none;
+  font-size: 18px;
+}
+
+.suggestions {
+  width: 420px;
+  max-width: 80vw;
+  background: #11182b;
+  border-radius: 12px;
+  margin-top: 6px;
+  text-align: left;
+  overflow: hidden;
+}
+
+.suggestion-item {
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.suggestion-item:hover {
+  background: #1b2542;
+}
+
+.content {
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:40px;
+  width:100%;
+  max-width:1100px;
+  margin-top: -50px;
+}
+
+.left, .right {
+  width:45%;
+}
+
+.card {
+  padding:8px;
+  margin:5px auto;
+  font-size:13px;
+}
+
+#forecast-content {
+  margin-top: -30px;
+  text-align:center;
+}
+
+/* ADJUST GRAPH HEIGHT HERE */
+canvas { width:100%; height:220px; }
+
+/* ADJUST CLOCK POSITION HERE */
+.clock {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size:20px;
+}
+
+.moon-img {
+  display:block;
+  margin:12px auto;
+}
+
+.header {
+  position:absolute;
+  top:20px;
+  left:20px;
+  text-align:left;
+}
+
+.header h1 {
+  margin:0;
+  font-size:28px;
+}
+
+.header p {
+  margin:0;
+  font-size:14px;
+  color:#aaa;
+}
+
+html, body { height:100%; }
+
+/* HOME FACT CENTERING */
+.home-fact {
+  max-width: 700px;
+  width:100%;
+  text-align: center;
+  margin-top: -40px;
+}
+
+.home-fact img {
+  width: 100%;
+  max-width: 500px;
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
 </style>
 </head>
-<body>
-<h1>Astronomy Weather Viewer</h1>
 
-<input id="zip" placeholder="Enter ZIP Code">
-<button onclick="getWeather()">Go</button>
+<body>
+
+<div class="header">
+  <h1>Astronomy Weather</h1>
+  <p>Worldwide</p>
+</div>
+
+<div class="main">
+  <div class="search-container">
+    <input id="zip" placeholder="Search city or ZIP">
+    <div id="suggestions" class="suggestions"></div>
+  </div>
+
+  <div class="content">
+    <div class="left card" id="conditions"></div>
+    <div class="right card"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div id="forecast-content"></div>
+</div>
 
 <div id="clock" class="clock"></div>
 
-<div class="container">
-  <div class="left card" id="conditions"></div>
-  <div class="right card"><canvas id="chart"></canvas></div>
-  <div class="small card" id="forecast"></div>
-  <div class="small card" id="moon"></div>
-</div>
-
 <script>
-const API_KEY = "ZSMBVQBG98BSW845P5KQ9VVDE";
-let clockInterval = null;
 
-// ENTER key triggers Go
+
+// ---- AUTOCOMPLETE ----
 const input = document.getElementById('zip');
-input.addEventListener('keypress', function(e){
-  if(e.key === 'Enter') getWeather();
+const suggestionsEl = document.getElementById('suggestions');
+let debounceTimer;
+
+input.addEventListener('input', () => {
+  const q = input.value.trim();
+  clearTimeout(debounceTimer);
+  if (!q) { suggestionsEl.innerHTML=''; return; }
+
+  debounceTimer = setTimeout(async () => {
+    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5`);
+    const data = await res.json();
+    const results = data.results || [];
+
+    suggestionsEl.innerHTML = results.map(r => {
+      const label = `${r.name}${r.admin1 ? ', ' + r.admin1 : ''}, ${r.country}`;
+      return `<div class="suggestion-item" data-name="${label}">${label}</div>`;
+    }).join('');
+  }, 250);
 });
 
-function startClock(timezone){
-  if(clockInterval) clearInterval(clockInterval);
-  function tick(){
-    const now = new Date();
-    const t = new Intl.DateTimeFormat('en-US',{timeZone: timezone, hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(now);
-    document.getElementById('clock').innerText = 'Local Time: ' + t;
-  }
-  tick();
-  clockInterval = setInterval(tick, 1000);
-}
+suggestionsEl.addEventListener('click', (e) => {
+  const item = e.target.closest('.suggestion-item');
+  if (!item) return;
+  input.value = item.dataset.name;
+  suggestionsEl.innerHTML = '';
+  getWeather();
+});
 
-function estimateLightPollution(zip){
-  if(!zip) return {value:0.5,label:'Unknown'};
-  if(zip.startsWith('85')) return {value:0.8,label:'Urban'};
-  return {value:0.3,label:'Rural'};
-}
+document.getElementById('zip').addEventListener('keypress', e=>{
+  if(e.key==='Enter') getWeather();
+});
 
-function telescopeScore(d, light){
-  if(!d) return 0;
-  return ((1-(d.cloudcover||0)/100)*0.3 +
-          (1-(d.humidity||0)/100)*0.15 +
-          (1-(d.precipprob||0)/100)*0.1 +
-          (1-(d.windspeed||0)/25)*0.15 +
-          ((d.visibility||0)/15)*0.15 +
-          (2*Math.abs((d.moonphase||0)-0.5))*0.1 +
-          (1-light)*0.05)*100;
-}
-
-function ratingLabel(s){
-  if(s <= 70) return 'Poor';
-  if(s <= 80) return 'Decent';
-  if(s <= 90) return 'Good';
-  return 'Excellent';
-}
-
-function moonPhaseName(p){
-  return p<0.0625||p>=0.9375?'New Moon':
-         p<0.1875?'Waxing Crescent':
-         p<0.3125?'First Quarter':
-         p<0.4375?'Waxing Gibbous':
-         p<0.5625?'Full Moon':
-         p<0.6875?'Waning Gibbous':
-         p<0.8125?'Last Quarter':'Waning Crescent';
-}
-
-function moonEmoji(p){
-  return p<0.0625||p>=0.9375?'🌑':
-         p<0.1875?'🌒':
-         p<0.3125?'🌓':
-         p<0.4375?'🌔':
-         p<0.5625?'🌕':
-         p<0.6875?'🌖':
-         p<0.8125?'🌗':'🌘';
-}
-
+// ---- VIEWING SCORE FORECAST HELPERS ----
 function windDir(deg){
-  if(deg===undefined) return '';
-  const dirs=['N','NE','E','SE','S','SW','W','NW'];
+  const dirs = ['N','NE','E','SE','S','SW','W','NW'];
   return dirs[Math.round(deg/45)%8];
 }
 
-function bestViewing(hours, sunset, light){
-  if(!hours || !sunset) return 'No data';
-  const sH = parseInt(sunset.split(':')[0]);
-  const night = hours.filter(h => parseInt(h.datetime.split(':')[0]) >= sH);
-  if(!night.length) return 'No nighttime data';
-  return night.map(h=>({t:h.datetime, s:telescopeScore(h, light)}))
-              .reduce((a,b)=> a.s>b.s?a:b).t;
+function scoreColor(s){
+  if (s < 70) return '#e89a9a';
+  if (s < 80) return '#e8d88a';
+  if (s < 90) return '#b7e4c7';
+  return '#2d6a4f';
 }
 
+function telescopeScore(d, light){
+  return (
+    (1 - (d.cloudcover||0)/100)*0.3 +
+    (1 - (d.humidity||0)/100)*0.15 +
+    (1 - (d.precipprob||0)/100)*0.1 +
+    (1 - (d.windspeed||0)/25)*0.15 +
+    ((d.visibility||0)/15)*0.15 +
+    (2*Math.abs((d.moonphase||0)-0.5))*0.1 +
+    (1-light)*0.05
+  ) * 100;
+}
+
+function estimateLightPollution(address){
+  const a = address.toLowerCase();
+  if(a.includes('new york') || a.includes('los angeles') || a.includes('chicago') || a.includes('london') || a.includes('tokyo')) return 0.8;
+  if(a.includes('phoenix') || a.includes('dallas') || a.includes('miami')) return 0.6;
+  return 0.3;
+}
+
+function buildNightHours(hours, sunsetStr, sunriseNextStr){
+  const today = new Date();
+  const [sh, sm] = sunsetStr.split(':').map(Number);
+  const [rh, rm] = sunriseNextStr.split(':').map(Number);
+  const sunset = new Date(today.getFullYear(), today.getMonth(), today.getDate(), sh, sm);
+  const sunriseNext = new Date(today.getFullYear(), today.getMonth(), today.getDate()+1, rh, rm);
+
+  return hours.map(h=>{
+    const [hh, mm] = h.datetime.split(':').map(Number);
+    let d = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hh, mm);
+    if(hh < 12) d = new Date(today.getFullYear(), today.getMonth(), today.getDate()+1, hh, mm);
+    return {...h, date:d};
+  }).filter(h => h.date >= sunset && h.date <= sunriseNext);
+}
+
+let chart;
+
+function updateClock(){
+  const now = new Date();
+  const el = document.getElementById('clock');
+  if (el) el.innerText = "Local Time: " + now.toLocaleTimeString();
+}
+setInterval(updateClock, 1000);
+updateClock();
 async function getWeather(){
+  // Removed showSection('forecast');
+  // Removed document.body.classList.add('searched');
+  document.body.classList.remove('lock-scroll');
+
   const zip = document.getElementById('zip').value;
-  if(!zip) return alert('Enter ZIP');
+  if(!zip) return;
 
-  try{
-    const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${zip}?unitGroup=us&key=${API_KEY}&contentType=json&include=hours`;
-    const res = await fetch(url);
-    if(!res.ok) throw new Error('API request failed');
-    const json = await res.json();
+  const res = await fetch(`https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${zip}?unitGroup=us&key=ZSMBVQBG98BSW845P5KQ9VVDE&contentType=json&include=hours`);
+  const json = await res.json();
 
-    if(!json.days || !json.days.length) throw new Error('No data for ZIP');
+  const d = json.days[0];
+  const dNext = json.days[1] || d;
 
-    startClock(json.timezone);
+  const light = estimateLightPollution(json.resolvedAddress);
+  const score = telescopeScore(d, light);
 
-    const d = json.days[0];
-    const current = json.currentConditions || d;
-    const light = estimateLightPollution(zip);
-
-    const score = telescopeScore(d, light.value);
-    const rating = ratingLabel(score);
-
-    document.getElementById('conditions').innerHTML = `
-      <h2>${json.resolvedAddress}</h2>
-      <h3>Current Temp: ${current.temp}°F</h3>
-      <p><b>Conditions:</b> ${d.conditions}</p>
-      <p><b>Temp:</b> ${d.tempmin}–${d.tempmax}°F</p>
-      <p><b>Humidity:</b> ${d.humidity}%</p>
-      <p><b>Wind:</b> ${d.windspeed} mph ${windDir(d.winddir)}</p>
-      <p><b>Cloud Cover:</b> ${d.cloudcover}%</p>
-      <p><b>Visibility:</b> ${d.visibility} miles</p>
-      <p><b>Moon:</b> ${moonPhaseName(d.moonphase)}</p>
-      <p><b>Light Pollution:</b> ${light.label}</p>
-      <h3><b>Telescope Rating:</b> ${score.toFixed(1)}% (${rating})</h3>
-      <p><b>Best Viewing:</b> ${bestViewing(d.hours, d.sunset, light.value)}</p>`;
-
-    const sunsetHour = parseInt(d.sunset.split(':')[0]);
-    const night = (d.hours||[]).filter(h => parseInt(h.datetime.split(':')[0]) >= sunsetHour);
-
-    const ctx = document.getElementById('chart').getContext('2d');
-    if(window.chart && typeof window.chart.destroy==='function') window.chart.destroy();
-
-    window.chart = new Chart(ctx, {
-      type:'line',
-      data:{
-        labels: night.map(h=>h.datetime),
-        datasets:[{label:'Night Cloud Cover (%)', data: night.map(h=>h.cloudcover)}]
-      }
-    });
-
-    let f = '<h3>Telescope Rating</h3>';
-    json.days.slice(0,7).forEach(day => {
-      const s = telescopeScore(day, light.value);
-      f += `<p>${day.datetime}: ${s.toFixed(0)}%</p>`;
-    });
-    document.getElementById('forecast').innerHTML = f;
-
-    let m = '<h3>Moon Phases</h3>';
-    json.days.slice(0,7).forEach(day => {
-      m += `<p>${day.datetime}: ${moonPhaseName(day.moonphase)} ${moonEmoji(day.moonphase)}</p>`;
-    });
-    document.getElementById('moon').innerHTML = m;
-
-  }catch(e){
-    console.error(e);
-    alert('API or ZIP error');
+  // moon image helper
+  function getMoonImage(p){
+    if (p < 0.0625 || p >= 0.9375) return "./images/moon/moon_new.png";
+    if (p < 0.1875) return "./images/moon/moon_waxing_crescent.png";
+    if (p < 0.3125) return "./images/moon/moon_first_quarter.png";
+    if (p < 0.4375) return "./images/moon/moon_waxing_gibbous.png";
+    if (p < 0.5625) return "./images/moon/moon_full.png";
+    if (p < 0.6875) return "./images/moon/moon_waning_gibbous.png";
+    if (p < 0.8125) return "./images/moon/moon_last_quarter.png";
+    return "./images/moon/moon_waning_crescent.png";
   }
+
+  function moonPhaseName(p){
+    if (p < 0.0625 || p >= 0.9375) return "New Moon";
+    if (p < 0.1875) return "Waxing Crescent";
+    if (p < 0.3125) return "First Quarter";
+    if (p < 0.4375) return "Waxing Gibbous";
+    if (p < 0.5625) return "Full Moon";
+    if (p < 0.6875) return "Waning Gibbous";
+    if (p < 0.8125) return "Last Quarter";
+    return "Waning Crescent";
+  }
+
+  const night = buildNightHours(d.hours, d.sunset, dNext.sunrise);
+
+  document.getElementById('conditions').innerHTML = `
+    <h2>${json.resolvedAddress}</h2>
+    <h3>Current Temp: ${json.currentConditions?.temp || d.temp}°F</h3>
+
+    <p><b>Conditions:</b> ${d.conditions}</p>
+    <p><b>Temp:</b> ${d.tempmin}–${d.tempmax}°F</p>
+    <p><b>Humidity:</b> ${d.humidity}%</p>
+    <p><b>Wind:</b> ${d.windspeed} mph ${windDir(d.winddir)}</p>
+    <p><b>Visibility:</b> ${d.visibility} miles</p>
+
+    <p><b>Sunset:</b> ${d.sunset}</p>
+    <p><b>Sunrise:</b> ${d.sunrise}</p>
+
+    <p><b>Light Pollution:</b> ${(light*100).toFixed(0)}%</p>
+
+    <p><b>Moon Phase:</b> ${moonPhaseName(d.moonphase)}</p>
+    <img class="moon-img" src="${getMoonImage(d.moonphase)}" style="width:120px;">
+
+    <h3>Viewing Score: ${score.toFixed(1)}%</h3>
+  `;
+
+  if(chart) chart.destroy();
+  chart = new Chart(document.getElementById('chart'), {
+    type:'line',
+    data:{
+      labels: night.map(h=>h.datetime),
+      datasets:[{
+        data: night.map(h=>telescopeScore(h, light)),
+        borderColor:'#444444',
+        segment:{ borderColor: ctx => scoreColor(ctx.p1.parsed.y) },
+        pointRadius: 4,
+        pointStyle: 'circle',
+        pointBackgroundColor: ctx => scoreColor(ctx.parsed.y),
+        pointBorderColor: '#444444',
+        pointBorderWidth: 1
+      }]
+    },
+    options:{
+      maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, title:{display:true, text:'Viewing Score'} },
+      scales:{
+        y:{ min:0, max:100, grid:{color:'#444'}, ticks:{color:'#e0e6ff'} },
+        x:{ grid:{color:'#444'}, ticks:{color:'#e0e6ff'} }
+      }
+    }
+  });
+
+  document.getElementById('forecast-content').innerHTML = `
+    <h3 style="width:100%">Viewing Score Forecast</h3>
+    <div style="display:flex; gap:8px; font-size:11px; justify-content:center;">
+      ${json.days.slice(0,7).map(day=>`
+        <div style="color:white; min-width:90px;">
+          <div style="font-weight:bold;">${day.datetime}</div>
+          <div>${telescopeScore(day, light).toFixed(0)}%</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
 }
+
+window.addEventListener('DOMContentLoaded', () => {
+});
+
 </script>
+
 </body>
 </html>
