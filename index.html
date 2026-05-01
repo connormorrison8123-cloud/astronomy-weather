@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -14,9 +15,6 @@ input, button { padding:10px; margin:10px; font-size:16px; }
 .card { background:#11182b; padding:20px; margin:20px auto; border-radius:10px; }
 canvas { width:100%; }
 .clock { font-size:20px; margin-top:10px; }
-.good { color:#4caf50; }
-.fair { color:#ffc107; }
-.poor { color:#f44336; }
 </style>
 </head>
 <body>
@@ -25,151 +23,161 @@ canvas { width:100%; }
 <input id="zip" placeholder="Enter ZIP Code">
 <button onclick="getWeather()">Go</button>
 
-<div class="clock" id="clock"></div>
+<div id="clock" class="clock"></div>
 
 <div class="container">
-
-<div class="left card" id="conditions"></div>
-
-<div class="right card">
-<canvas id="chart"></canvas>
-</div>
-
-<div class="small card" id="forecast"></div>
-<div class="small card" id="moon"></div>
-
+  <div class="left card" id="conditions"></div>
+  <div class="right card"><canvas id="chart"></canvas></div>
+  <div class="small card" id="forecast"></div>
+  <div class="small card" id="moon"></div>
 </div>
 
 <script>
 const API_KEY = "ZSMBVQBG98BSW845P5KQ9VVDE";
+let clockInterval = null;
 
-// atomic clock (simple approximation using system time)
-function updateClock() {
-    let now = new Date();
-    document.getElementById("clock").innerText = "UTC Time: " + now.toUTCString();
-}
-setInterval(updateClock, 1000);
-updateClock();
+// ENTER key triggers Go
+const input = document.getElementById('zip');
+input.addEventListener('keypress', function(e){
+  if(e.key === 'Enter') getWeather();
+});
 
-function estimateLightPollution(zip) {
-    if(zip.startsWith("85")) return {value:0.8, label:"Urban"};
-    return {value:0.3, label:"Rural"};
-}
-
-function telescopeScore(data, lightPollution) {
-    let score = (1 - data.cloudcover/100)*0.30 +
-                (1 - data.humidity/100)*0.15 +
-                (1 - data.precipprob/100)*0.1 +
-                (1 - data.windspeed/25)*0.15 +
-                (data.visibility/15)*0.15 +
-                (2*Math.abs(data.moonphase - 0.5))*0.10 +
-                (1 - lightPollution)*0.05;
-    return score * 100;
+function startClock(timezone){
+  if(clockInterval) clearInterval(clockInterval);
+  function tick(){
+    const now = new Date();
+    const t = new Intl.DateTimeFormat('en-US',{timeZone: timezone, hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(now);
+    document.getElementById('clock').innerText = 'Local Time: ' + t;
+  }
+  tick();
+  clockInterval = setInterval(tick, 1000);
 }
 
-function ratingLabel(score) {
-    if(score > 80) return "Excellent";
-    if(score > 60) return "Good";
-    if(score > 40) return "Fair";
-    return "Poor";
+function estimateLightPollution(zip){
+  if(!zip) return {value:0.5,label:'Unknown'};
+  if(zip.startsWith('85')) return {value:0.8,label:'Urban'};
+  return {value:0.3,label:'Rural'};
 }
 
-function moonPhaseName(p) {
-    if(p < 0.0625 || p >= 0.9375) return "New Moon";
-    if(p < 0.1875) return "Waxing Crescent";
-    if(p < 0.3125) return "First Quarter";
-    if(p < 0.4375) return "Waxing Gibbous";
-    if(p < 0.5625) return "Full Moon";
-    if(p < 0.6875) return "Waning Gibbous";
-    if(p < 0.8125) return "Last Quarter";
-    return "Waning Crescent";
+function telescopeScore(d, light){
+  if(!d) return 0;
+  return ((1-(d.cloudcover||0)/100)*0.3 +
+          (1-(d.humidity||0)/100)*0.15 +
+          (1-(d.precipprob||0)/100)*0.1 +
+          (1-(d.windspeed||0)/25)*0.15 +
+          ((d.visibility||0)/15)*0.15 +
+          (2*Math.abs((d.moonphase||0)-0.5))*0.1 +
+          (1-light)*0.05)*100;
 }
 
-function moonEmoji(p) {
-    if(p < 0.0625 || p >= 0.9375) return "🌑";
-    if(p < 0.1875) return "🌒";
-    if(p < 0.3125) return "🌓";
-    if(p < 0.4375) return "🌔";
-    if(p < 0.5625) return "🌕";
-    if(p < 0.6875) return "🌖";
-    if(p < 0.8125) return "🌗";
-    return "🌘";
+function ratingLabel(s){
+  if(s <= 70) return 'Poor';
+  if(s <= 80) return 'Decent';
+  if(s <= 90) return 'Good';
+  return 'Excellent';
 }
 
-function bestViewing(hourly, sunset, light) {
-    let sunsetHour = parseInt(sunset.split(":")[0]);
-    let nightHours = hourly.filter(h => parseInt(h.datetime.split(":")[0]) >= sunsetHour);
-    if(nightHours.length === 0) return "No nighttime data";
-
-    let best = nightHours.map(h => ({ time: h.datetime, score: telescopeScore(h, light) }))
-        .reduce((a,b)=> a.score > b.score ? a : b);
-
-    return best.time;
+function moonPhaseName(p){
+  return p<0.0625||p>=0.9375?'New Moon':
+         p<0.1875?'Waxing Crescent':
+         p<0.3125?'First Quarter':
+         p<0.4375?'Waxing Gibbous':
+         p<0.5625?'Full Moon':
+         p<0.6875?'Waning Gibbous':
+         p<0.8125?'Last Quarter':'Waning Crescent';
 }
 
-function windDirection(deg) {
-    const dirs = ["N","NE","E","SE","S","SW","W","NW"];
-    return dirs[Math.round(deg/45)%8];
+function moonEmoji(p){
+  return p<0.0625||p>=0.9375?'🌑':
+         p<0.1875?'🌒':
+         p<0.3125?'🌓':
+         p<0.4375?'🌔':
+         p<0.5625?'🌕':
+         p<0.6875?'🌖':
+         p<0.8125?'🌗':'🌘';
 }
 
-async function getWeather() {
-    let zip = document.getElementById("zip").value;
-    let light = estimateLightPollution(zip);
+function windDir(deg){
+  if(deg===undefined) return '';
+  const dirs=['N','NE','E','SE','S','SW','W','NW'];
+  return dirs[Math.round(deg/45)%8];
+}
 
-    let url = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/" + zip + "?unitGroup=us&key=" + API_KEY + "&contentType=json&include=hours";
+function bestViewing(hours, sunset, light){
+  if(!hours || !sunset) return 'No data';
+  const sH = parseInt(sunset.split(':')[0]);
+  const night = hours.filter(h => parseInt(h.datetime.split(':')[0]) >= sH);
+  if(!night.length) return 'No nighttime data';
+  return night.map(h=>({t:h.datetime, s:telescopeScore(h, light)}))
+              .reduce((a,b)=> a.s>b.s?a:b).t;
+}
 
-    let res = await fetch(url);
-    let json = await res.json();
+async function getWeather(){
+  const zip = document.getElementById('zip').value;
+  if(!zip) return alert('Enter ZIP');
 
-    let d = json.days[0];
-    let current = json.currentConditions;
+  try{
+    const url = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${zip}?unitGroup=us&key=${API_KEY}&contentType=json&include=hours`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('API request failed');
+    const json = await res.json();
 
-    let hourly = [];
-    json.days.forEach(day => hourly = hourly.concat(day.hours));
+    if(!json.days || !json.days.length) throw new Error('No data for ZIP');
 
-    let sunsetHour = parseInt(d.sunset.split(":")[0]);
-    let nightHours = d.hours.filter(h => parseInt(h.datetime.split(":")[0]) >= sunsetHour);
+    startClock(json.timezone);
 
-    let score = telescopeScore(d, light.value);
-    let rating = ratingLabel(score);
+    const d = json.days[0];
+    const current = json.currentConditions || d;
+    const light = estimateLightPollution(zip);
 
-    document.getElementById("conditions").innerHTML = 
-        "<h2>" + json.resolvedAddress + "</h2>" +
-        "<h3>Current Temp: " + current.temp + "°F</h3>" +
-        "<p><b>Conditions:</b> " + d.conditions + "</p>" +
-        "<p><b>Temp:</b> " + d.tempmin + "–" + d.tempmax + "°F</p>" +
-        "<p><b>Humidity:</b> " + d.humidity + "%</p>" +
-        "<p><b>Wind:</b> " + d.windspeed + " mph " + windDirection(d.winddir) + "</p>" +
-        "<p><b>Cloud Cover:</b> " + d.cloudcover + "%</p>" +
-        "<p><b>Visibility:</b> " + d.visibility + "</p>" +
-        "<p><b>Moon:</b> " + moonPhaseName(d.moonphase) + "</p>" +
-        "<p><b>Light Pollution:</b> " + light.label + "</p>" +
-        "<h3><b>Telescope Rating:</b> " + score.toFixed(1) + "% (" + rating + ")</h3>" +
-        "<p><b>Best Viewing:</b> " + bestViewing(d.hours, d.sunset, light.value) + "</p>";
+    const score = telescopeScore(d, light.value);
+    const rating = ratingLabel(score);
 
-    let ctx = document.getElementById('chart').getContext('2d');
-    if(window.chart && typeof window.chart.destroy === 'function') window.chart.destroy();
+    document.getElementById('conditions').innerHTML = `
+      <h2>${json.resolvedAddress}</h2>
+      <h3>Current Temp: ${current.temp}°F</h3>
+      <p><b>Conditions:</b> ${d.conditions}</p>
+      <p><b>Temp:</b> ${d.tempmin}–${d.tempmax}°F</p>
+      <p><b>Humidity:</b> ${d.humidity}%</p>
+      <p><b>Wind:</b> ${d.windspeed} mph ${windDir(d.winddir)}</p>
+      <p><b>Cloud Cover:</b> ${d.cloudcover}%</p>
+      <p><b>Visibility:</b> ${d.visibility} miles</p>
+      <p><b>Moon:</b> ${moonPhaseName(d.moonphase)}</p>
+      <p><b>Light Pollution:</b> ${light.label}</p>
+      <h3><b>Telescope Rating:</b> ${score.toFixed(1)}% (${rating})</h3>
+      <p><b>Best Viewing:</b> ${bestViewing(d.hours, d.sunset, light.value)}</p>`;
+
+    const sunsetHour = parseInt(d.sunset.split(':')[0]);
+    const night = (d.hours||[]).filter(h => parseInt(h.datetime.split(':')[0]) >= sunsetHour);
+
+    const ctx = document.getElementById('chart').getContext('2d');
+    if(window.chart && typeof window.chart.destroy==='function') window.chart.destroy();
 
     window.chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: nightHours.map(h => h.datetime),
-            datasets: [{ label: 'Night Cloud Cover (%)', data: nightHours.map(h => h.cloudcover) }]
-        }
+      type:'line',
+      data:{
+        labels: night.map(h=>h.datetime),
+        datasets:[{label:'Night Cloud Cover (%)', data: night.map(h=>h.cloudcover)}]
+      }
     });
 
-    let forecastHTML = "<h3>Telescope Rating</h3>";
+    let f = '<h3>Telescope Rating</h3>';
     json.days.slice(0,7).forEach(day => {
-        let s = telescopeScore(day, light.value);
-        forecastHTML += "<p>" + day.datetime + ": " + s.toFixed(0) + "%</p>";
+      const s = telescopeScore(day, light.value);
+      f += `<p>${day.datetime}: ${s.toFixed(0)}%</p>`;
     });
-    document.getElementById("forecast").innerHTML = forecastHTML;
+    document.getElementById('forecast').innerHTML = f;
 
-    let moonHTML = "<h3>Moon Phases</h3>";
+    let m = '<h3>Moon Phases</h3>';
     json.days.slice(0,7).forEach(day => {
-        moonHTML += "<p>" + day.datetime + ": " + moonPhaseName(day.moonphase) + " " + moonEmoji(day.moonphase) + "</p>";
+      m += `<p>${day.datetime}: ${moonPhaseName(day.moonphase)} ${moonEmoji(day.moonphase)}</p>`;
     });
-    document.getElementById("moon").innerHTML = moonHTML;
+    document.getElementById('moon').innerHTML = m;
+
+  }catch(e){
+    console.error(e);
+    alert('API or ZIP error');
+  }
 }
 </script>
 </body>
